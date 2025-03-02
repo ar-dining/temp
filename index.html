@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Click-Based Direction Changes</title>
+  <!-- Load model-viewer web component -->
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Live camera feed fills the background */
+    #video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    /* Arrow overlay */
+    model-viewer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      background: transparent;
+    }
+
+    /* Full-screen invisible button to trigger orientation permission and angle updates */
+    #clickArea {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+      background: rgba(0, 0, 0, 0);
+      /* fully transparent */
+      border: none;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Live camera feed -->
+  <video id="video" autoplay playsinline muted></video>
+  <!-- Navigation Arrow Model (replace "arrow.glb" with your arrow model file) -->
+  <model-viewer id="arrow" src="arrow.glb" alt="Arrow" interaction-prompt="none" camera-orbit="180deg 50deg auto"
+    style="pointer-events: none;"></model-viewer>
+  <!-- Invisible full-screen area for clicks -->
+  <button id="clickArea"></button>
+
+  <script>
+    // Set up live camera feed
+    const video = document.getElementById('video');
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => { console.error('Camera error:', err); });
+
+    const arrowViewer = document.getElementById('arrow');
+
+    // Variables to hold orientation data.
+    let initialHeading = null; // Calibrated on first reading.
+    let latestHeading = null;  // Continuously updated.
+    let currentOffset = 0;     // Cumulative offset (in degrees).
+
+    // Define a sequence of angle changes (in degrees) on each click.
+    // For example, first tap adds 90°, second adds 45°, third adds 270°.
+    const angleSequence = [90, 270, 90, 90, 270, 285, 90, 90, 270];
+    let sequenceIndex = 0;
+
+    // Device orientation handler.
+    function handleOrientation(event) {
+      latestHeading = -event.alpha; // Device heading in degrees (0 = north).
+      // On first reading, calibrate the initial heading.
+      if (initialHeading === null && latestHeading !== null) {
+        initialHeading = latestHeading;
+        console.log(`Calibrated initial heading: ${initialHeading}°`);
+      }
+      // Update the arrow display based on the current offset.
+      updateArrowDisplay();
+    }
+
+    // Update the arrow's display based on the current offset and device heading.
+    function updateArrowDisplay() {
+      if (initialHeading !== null && latestHeading !== null) {
+        // The target fixed direction is initialHeading + currentOffset.
+        // The displayed relative angle is the difference between that and the current device heading.
+        const targetDirection = (initialHeading + currentOffset) % 360;
+        const displayedAngle = targetDirection - latestHeading + 180;
+        arrowViewer.cameraOrbit = `${displayedAngle}deg 50deg auto`;
+        arrowViewer.jumpCameraToOrbit();
+        console.log(`Initial: ${initialHeading}°, Offset: ${currentOffset}°, Device: ${latestHeading}°, Target: ${targetDirection}°, Displayed: ${displayedAngle}°`);
+      }
+    }
+
+    // Click handler: on each tap, update the offset based on the sequence.
+    function handleClick() {
+      // If there's an angle defined at the current index, add it.
+      if (sequenceIndex < angleSequence.length) {
+        currentOffset = (currentOffset + angleSequence[sequenceIndex]) % 360;
+        console.log(`Click ${sequenceIndex + 1}: Added ${angleSequence[sequenceIndex]}°, new offset: ${currentOffset}°`);
+        sequenceIndex++;
+        updateArrowDisplay();
+      } else {
+        console.log('No more angle updates defined.');
+      }
+    }
+
+    // Function to enable device orientation events.
+    function enableOrientation() {
+      // Remove the click area used solely for triggering permission if it exists.
+      // (We'll keep it for handling subsequent clicks.)
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation);
+            } else {
+              console.error('Orientation permission not granted.');
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+      }
+    }
+
+    // Attach click event to the invisible full-screen button.
+    const clickArea = document.getElementById('clickArea');
+    clickArea.addEventListener('click', () => {
+      // First click also triggers orientation permission if needed.
+      enableOrientation();
+      handleClick();
+    });
+  </script>
+</body>
+
+</html>
